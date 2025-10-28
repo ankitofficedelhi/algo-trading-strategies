@@ -1,0 +1,2 @@
+start_date,end_date,start_time_1,end_time_1,sl_1,ut_sl_1,om_1,method,start_time_2,end_time_2,sl_2,ut_sl_2,om_2
+01-01-2018,31-12-2020,09:16:00,13:00:00,0,0,1,HL,13:00:00,15:25:00,30,50,0.5
