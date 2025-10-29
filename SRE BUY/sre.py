@@ -1,5 +1,5 @@
 import pandas as pd
-from datetime import datetime
+from datetime import datetime ,time
 from pathlib import Path
 from tqdm import gui, tqdm
 import os
@@ -98,8 +98,8 @@ def get_straddle_strike(
     current_date = fut.index[0].date()
     
     # Convert time objects to datetime
-    start_datetime = pd.Timestamp.combine(current_date, start_dt) if isinstance(start_dt, pd._libs.tslibs.timestamps.time) else start_dt
-    end_datetime = pd.Timestamp.combine(current_date, end_dt) - pd.Timedelta(minutes=10) if isinstance(end_dt, pd._libs.tslibs.timestamps.time) else end_dt - pd.Timedelta(minutes=10)
+    start_datetime = pd.Timestamp.combine(current_date, start_dt) if isinstance(start_dt, time) else start_dt
+    end_datetime = pd.Timestamp.combine(current_date, end_dt) - pd.Timedelta(minutes=10) if isinstance(end_dt, time) else end_dt - pd.Timedelta(minutes=10)
     
     valid_times = fut.loc[start_datetime:end_datetime].index
     for current_dt in valid_times:
@@ -153,7 +153,7 @@ def get_straddle_strike(
                 ],
             )
             sd_range = 0
-            if sd:
+            if sd !=0:
                 sd_range = (ce_price + pe_price) * sd
 
                 if SDroundoff:
@@ -163,7 +163,7 @@ def get_straddle_strike(
 
             ce_scrip, pe_scrip = (
                 f"{int(ce_scrip[:-2])+int(sd_range)}CE",
-                f"{int(pe_scrip[:-2])}PE",
+                f"{int(pe_scrip[:-2])-int(sd_range)}PE",
             )
             ce_price, pe_price = (
                 opt[(opt.index == current_dt) & (opt["scrip"] == ce_scrip)].close.iloc[
@@ -306,7 +306,7 @@ def get_strangle_strike(
                 ].iloc[0],
             )
             if int(ce_scrip[:-2]) < int(pe_scrip[:-2]) and check_inverted:
-                get_straddle_strike(opt, fut, current_dt, end_time, gap)
+                get_straddle_strike(opt, fut, current_dt, end_time, gap,sd)
             else:
                 return ce_scrip, pe_scrip, ce_price, pe_price, future_price, current_dt
 
@@ -341,7 +341,7 @@ def calculate_sl_intra(entry_time, ce_data, pe_data, sl, intra_sl):
     intra_sl_price = ce_pe_price * (1 - intra_sl / 100)
     return sl_price, ce_pe_price, intra_sl_price
 
-def sre(index, start_date, end_date, start_time, end_time, om, sl, intra_sl):
+def sre(index, start_date, end_date, start_time, end_time, om, sd, sl, intra_sl):
 
     file_path = Path("C:\\PICKLE\\")
     opt_file_path = file_path / f"{PREFIX[index]} Options"
@@ -384,6 +384,7 @@ def sre(index, start_date, end_date, start_time, end_time, om, sl, intra_sl):
                 start_time,
                 end_time,
                 gap,
+                sd
             )
         )
         if ce_scrip is None or pe_scrip is None:
@@ -391,7 +392,7 @@ def sre(index, start_date, end_date, start_time, end_time, om, sl, intra_sl):
                 f"Straddle/Strangle not found for {opt_file.stem} and {fut_file.stem}"
             )
             continue
-
+        print("Selected Strikes:", ce_scrip, pe_scrip, "at", current_dt)
         metadata["EntryTime"] = current_dt.time()
         metadata["Future"] = future_price
         metadata["CE.Price"] = ce_price
@@ -522,6 +523,7 @@ def sre(index, start_date, end_date, start_time, end_time, om, sl, intra_sl):
                         entry_time,
                         end_time,
                         gap,
+                        sd
                     )
                 )
                 if ce_scrip is None or pe_scrip is None:
@@ -570,13 +572,29 @@ for idx, rows in param_df.iterrows():
     sl = rows["sl"]
     intra_sl = rows["intra_sl"]
     om = rows["om"]
+    sd = 0.0
+    if isinstance(om, str):
+        if om.lower().endswith('sd'):
+            sd = float(om[:-2])
+            om = 0.0
+        elif om.lower().endswith('s'):
+            sd = float(om[:-1])
+            om = 0.0
+        else:
+            om = float(om)
+            sd = 0.0
+    else:
+        om = float(om)
+        sd = 0.0
+    
+    print(om,sd)
 
     if sl > intra_sl:
         print("SL cannot be greater than Intra SL")
         continue
 
     total_pnl, combinat = sre(
-        index, start_date, end_date, start_time, end_time, om, sl, intra_sl
+        index, start_date, end_date, start_time, end_time, om, sd, sl, intra_sl
     )
     pd.DataFrame(combinat).to_csv(
         f"{processed_files}\\SRE {index.upper()} {start_time.strftime('%H%M')} {end_time.strftime('%H%M')} {sl} {intra_sl} {om}.csv", index=False
@@ -584,4 +602,3 @@ for idx, rows in param_df.iterrows():
     print(
         f"SRE {index.upper()} {start_time.strftime('%H%M')} {end_time.strftime('%H%M')} SL: {sl} Intra SL: {intra_sl} OM: {om} Total PnL: {total_pnl} competed successfully."
     )
-
