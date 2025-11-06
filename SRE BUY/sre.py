@@ -602,3 +602,4 @@ for idx, rows in param_df.iterrows():
     print(
         f"SRE {index.upper()} {start_time.strftime('%H%M')} {end_time.strftime('%H%M')} SL: {sl} Intra SL: {intra_sl} OM: {om} Total PnL: {total_pnl} competed successfully."
     )
+    
