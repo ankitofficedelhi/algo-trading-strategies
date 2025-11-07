@@ -1,3 +1,3 @@
 start_date,end_date,index,start_time,end_time,static_dynamic,sl,intra_sl,om,dte1,dte2,dte3,dte4,dte5,nml_cut
-03-06-2024,06-07-2024,nifty,09-16-00,15-25-00,static,10,20,0,1,1,1,0,2,normal
-,,,,,dynamic,15,,,,,,,,
+13-04-2020,16-04-2020,nifty,09-20-00,15-29-00,static,50,100,0,3,3,3,3,3,normal
+,,,,,dynamic,,,,,,,,,cut

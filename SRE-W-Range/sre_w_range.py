@@ -349,8 +349,8 @@ def get_strangle_strike(
     return None, None, None, None, None, None
 
 def get_sl_intra_sl(price, sl, intra_sl):
-    sl_price = price + (price * sl) / 100
-    intra_sl_price = price + (price * intra_sl) / 100
+    sl_price = (price * sl) / 100
+    intra_sl_price = (price * intra_sl) / 100
     return sl_price, intra_sl_price
 
 def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dtes, dte1, dte2, dte3, dte4, dte5, nml_cut):
@@ -393,15 +393,14 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
     ce_data, pe_data = None, None
     opt = option.copy()
     for i in range(10):
-        metadata[f"ST{i}.CE_Scrip"] = None
-        metadata[f"ST{i}.PE_Scrip"] = None
-        metadata[f"ST{i}.Future"] = None
-        metadata[f"ST{i}.Current_dt"] = None
-        metadata[f"ST{i}.Price"] = None
-        metadata[f"ST{i}.Hit_Time"] = None
-        metadata[f"ST{i}.PNL"] = None
-        metadata[f"ST{i}.SL_Range"] = None
-        metadata[f"ST{i}.Intra_SL_Range"] = None
+        metadata[f"STD{i}.Current_dt"] = None
+        metadata[f"STD{i}.Scrip"] = None
+        metadata[f"STD{i}.Price"] = None
+        metadata[f"STD{i}.Future"] = None
+        metadata[f"STD{i}.SL.Flag"] = False
+        metadata[f"STD{i}.Intra.SL.Flag"] = False
+        metadata[f"STD{i}.Hit_Time"] = None
+        metadata[f"STD{i}.PNL"] = None
 
     count = 0
     while count < 10:
@@ -413,25 +412,19 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
         if ce_scrip is None or pe_scrip is None:
             # print("No valid straddle/strangle found for the given parameters.")
             return metadata
-        metadata[f"ST{count}.Current_dt"] = current_dt
-        metadata[f"ST{count}.Future"] = future_price
-        metadata[f"ST{count}.CE_Scrip"] = ce_scrip
-        metadata[f"ST{count}.PE_Scrip"] = pe_scrip
+        metadata[f"STD{count}.Current_dt"] = current_dt
+        metadata[f"STD{count}.Future"] = future_price
+        metadata[f"STD{count}.Scrip"] = (ce_scrip, pe_scrip)
         # print("ce_scrip, pe_scrip", ce_scrip, pe_scrip)
         scrip = int(ce_scrip[:-2])
         price = ce_price + pe_price
+        metadata[f"STD{count}.Price"] = price
         sl_price, intra_sl_price = get_sl_intra_sl(price, sl, intra_sl)
 
         sl_range_upper, sl_range_lower = scrip + sl_price, scrip - sl_price
         intra_sl_range_upper, intra_sl_range_lower = (
             scrip + intra_sl_price,
             scrip - intra_sl_price,
-        )
-
-        metadata[f"ST{count}.SL_Range"] = (int(sl_range_lower), int(sl_range_upper))
-        metadata[f"ST{count}.Intra_SL_Range"] = (
-            int(intra_sl_range_lower),
-            int(intra_sl_range_upper),
         )
 
         opt = opt[current_dt:end_dt]
@@ -489,21 +482,10 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
 
                 if not is_last_day:
                     start_dt = ce_data[ce_data.index.date == current_date].index[-1] 
-                    ce_scrip, pe_scrip, ce_price, pe_price, future_price,   current_dt = (
-                        get_straddle_strike(
+                    ce_scrip, pe_scrip, ce_price, pe_price, future_price,   current_dt = get_straddle_strike(
                             opt, fut, start_dt, end_dt, gap=get_gap(opt), sd=sd
-                        )
-                        if om == 0.0
-                        else get_strangle_strike(
-                            opt,
-                            fut,
-                            start_dt,
-                            end_dt,
-                            gap=get_gap(opt),
-                            om=om,
-                            index=index,
-                        ))
-                    scrip = int(ce_scrip[:-2])  
+                        )  if om == 0.0 else get_strangle_strike(opt, fut, start_dt, end_dt, gap=get_gap(opt), om=om, index=index, )
+                    scrip = int(ce_scrip[:-2])
                     price = ce_price + pe_price
                     sl_price, intra_sl_price = get_sl_intra_sl(price, sl, intra_sl)
 
@@ -513,15 +495,19 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                         scrip - intra_sl_price,
                     )            
         else:
+            
+            # print(scrip + (ce_data["close"] - pe_data["close"]) <= intra_sl_range_lower)
+            
             intra_sl_time = ce_data[
-                ((scrip + ce_data["high"] - pe_data["low"]) <= intra_sl_range_lower)
-                | ((scrip + ce_data["low"] - pe_data["high"]) >= intra_sl_range_upper)
+                ((scrip + ce_data["high"] - pe_data["low"]) < intra_sl_range_lower)
+                | ((scrip + ce_data["low"] - pe_data["high"]) > intra_sl_range_upper)
             ].index
+            # print("intra_sl_time", intra_sl_time)
             sl_time = ce_data[
-                ((scrip + ce_data["close"] - pe_data["close"]) <= sl_range_lower)
-                | ((scrip + ce_data["close"] - pe_data["close"]) >= sl_range_upper)
+                ((scrip + ce_data["close"] - pe_data["close"]) < sl_range_lower)
+                | ((scrip + ce_data["close"] - pe_data["close"]) > sl_range_upper)
             ].index
-
+            # print("sl_time", sl_time)
             if len(intra_sl_time) > 0:
                 intra_sl_time = intra_sl_time[0]
             else:
@@ -530,9 +516,7 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 sl_time = sl_time[0]
             else:
                 sl_time = None
-
-        # print("intra sl time", intra_sl_time)
-        # print("sl time", sl_time)
+            print("intra_sl_time", intra_sl_time, "sl_time", sl_time)
         pnl = 0
         exit_time = None
         exit_type = None
@@ -544,44 +528,45 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
             )
             exit_time = ce_data.index[-1]
             exit_type = "End of Day"
-            metadata[f"ST{count}.PNL"] = pnl
+            metadata[f"STD{count}.PNL"] = pnl
             # print("end of day and time", exit_time)
             return metadata
         if sl_time and intra_sl_time:
             if sl_time < intra_sl_time:
                 exit_time = sl_time
                 exit_type = "SL Hit"
-                metadata[f"ST{count}.Hit_Time"] = exit_time
-                # print("sl hit and time", exit_time)
+                metadata[f"STD{count}.Hit_Time"] = exit_time
+                metadata[f"STD{count}.SL.Flag"] = True
             else:
                 exit_time = intra_sl_time
                 exit_type = "Intra SL Hit"
-                metadata[f"ST{count}.Hit_Time"] = exit_time
+                metadata[f"STD{count}.Hit_Time"] = exit_time
+                metadata[f"STD{count}.Intra.SL.Flag"] = True
                 # print("intra sl hit and time", exit_time)
 
         elif sl_time and not intra_sl_time:
             exit_time = sl_time
             exit_type = "SL Hit"
-            metadata[f"ST{count}.Hit_Time"] = exit_time
-            # print("only sl hit and time", exit_time)
+            metadata[f"STD{count}.Hit_Time"] = exit_time
+            metadata[f"STD{count}.SL.Flag"] = True
 
         elif intra_sl_time and not sl_time:
             exit_time = intra_sl_time
             exit_type = "Intra SL Hit"
-            metadata[f"ST{count}.Hit_Time"] = exit_time
-            # print("only intra sl hit and time", exit_time)
+            metadata[f"STD{count}.Hit_Time"] = exit_time
+            metadata[f"STD{count}.Intra.SL.Flag"] = True
 
         if exit_type == "SL Hit":
-            pnl = price - sl_price - price * SLIPAGES[index.lower()]
-            metadata[f"ST{count}.PNL"] = pnl
+            pnl = price - (ce_data.loc[exit_time, "close"] + pe_data.loc[exit_time, "close"]) - price * SLIPAGES[index.lower()]
+            metadata[f"STD{count}.PNL"] = pnl
 
         elif exit_type == "Intra SL Hit":
             pnl = (
                 price
-                - (ce_data.loc[exit_time, "close"] + pe_data.loc[exit_time, "close"])
+                - np.maximum(ce_data.loc[exit_time, "high"] + pe_data.loc[exit_time, "low"],ce_data.loc[exit_time, "low"] + pe_data.loc[exit_time, "high"])
                 - price * SLIPAGES[index.lower()]
             )
-            metadata[f"ST{count}.PNL"] = pnl
+            metadata[f"STD{count}.PNL"] = pnl
         count += 1
 
         if nml_cut.lower() == "cut":
