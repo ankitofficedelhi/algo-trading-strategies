@@ -449,8 +449,8 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
         common_index = ce_data.index.intersection(pe_data.index)
         ce_data = ce_data.loc[common_index]
         pe_data = pe_data.loc[common_index]
-        ce_data = ce_data[ce_data.index.time <= pd.Timestamp("15:15:00").time()]
-        pe_data = pe_data[pe_data.index.time <= pd.Timestamp("15:15:00").time()]
+        ce_data = ce_data[ce_data.index.time <= pd.Timestamp("15:25:00").time()]
+        pe_data = pe_data[pe_data.index.time <= pd.Timestamp("15:25:00").time()]
         intra_sl_time = None
         sl_time = None
         if typ.lower() == "dynamic":
@@ -464,20 +464,21 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 ce_day = ce_data[date_mask]
                 pe_day = pe_data[date_mask]
                 intra_sl_time_day = ce_day[
-                    ((scrip + ce_day["high"] - pe_day["low"]) <= intra_sl_range_lower)
-                    | ((scrip + ce_day["low"] - pe_day["high"]) >= intra_sl_range_upper)
+                    ((scrip + ce_day["high"] - pe_day["low"]) < intra_sl_range_lower)
+                    | ((scrip + ce_day["low"] - pe_day["high"]) > intra_sl_range_upper)
                 ].index
                 sl_time_day = ce_day[
-                    ((scrip + ce_day["close"] - pe_day["close"]) <= sl_range_lower)
-                    | ((scrip + ce_day["close"] - pe_day["close"]) >= sl_range_upper)
+                    ((scrip + ce_day["close"] - pe_day["close"]) < sl_range_lower)
+                    | ((scrip + ce_day["close"] - pe_day["close"]) > sl_range_upper)
                 ].index
-
+                print("sl time",sl_time_day)
                 # If SL hit on current day, exit loop
                 if len(intra_sl_time_day) > 0 or len(sl_time_day) > 0:
                     intra_sl_time = (
                         intra_sl_time_day[0] if len(intra_sl_time_day) > 0 else None
                     )
                     sl_time = sl_time_day[0] if len(sl_time_day) > 0 else None
+                    # print("intra_sl_time", intra_sl_time, "sl_time", sl_time)
                     break
 
                 if not is_last_day:
@@ -516,7 +517,7 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 sl_time = sl_time[0]
             else:
                 sl_time = None
-            print("intra_sl_time", intra_sl_time, "sl_time", sl_time)
+            # print("intra_sl_time", intra_sl_time, "sl_time", sl_time)
         pnl = 0
         exit_time = None
         exit_type = None
@@ -529,7 +530,6 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
             exit_time = ce_data.index[-1]
             exit_type = "End of Day"
             metadata[f"STD{count}.PNL"] = pnl
-            # print("end of day and time", exit_time)
             return metadata
         if sl_time and intra_sl_time:
             if sl_time < intra_sl_time:
@@ -542,7 +542,6 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 exit_type = "Intra SL Hit"
                 metadata[f"STD{count}.Hit_Time"] = exit_time
                 metadata[f"STD{count}.Intra.SL.Flag"] = True
-                # print("intra sl hit and time", exit_time)
 
         elif sl_time and not intra_sl_time:
             exit_time = sl_time
@@ -572,7 +571,7 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
         if nml_cut.lower() == "cut":
 
             if exit_time.date() != end_dt.date():
-                start_dt = pd.to_datetime(f"{exit_time.date()} 15:15:00")
+                start_dt = pd.to_datetime(f"{exit_time.date()} 15:25:00")
                 # print("..start_dt...", start_dt)
             else:
                 return metadata
@@ -597,7 +596,7 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 start_dt = exit_time
             else:
                 if exit_time.date() != end_dt.date():
-                    start_dt = pd.to_datetime(f"{exit_time.date()} 15:15:00")
+                    start_dt = pd.to_datetime(f"{exit_time.date()} 15:25:00")
 
                     # print(".start_dt...", start_dt)
                 else:
