@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta, time
+from tqdm import tqdm
 
 cwd = Path.cwd()
 SLIPAGES = {
@@ -118,20 +119,20 @@ def get_straddle_strike(
     SDroundoff: bool = False,
 ):
     # Get the date from the futures data
-    current_date = fut.index[0].date()
-    # Convert time objects to datetime
-    start_datetime = (
-        pd.Timestamp.combine(current_date, start_dt)
-        if isinstance(start_dt, time)
-        else start_dt
-    )
-    end_datetime = (
-        pd.Timestamp.combine(current_date, end_dt) - pd.Timedelta(minutes=15)
-        if isinstance(end_dt, time)
-        else end_dt - pd.Timedelta(minutes=15)
-    )
+    # current_date = fut.index[0].date()
+    # # Convert time objects to datetime
+    # start_datetime = (
+    #     pd.Timestamp.combine(current_date, start_dt)
+    #     if isinstance(start_dt, time)
+    #     else start_dt
+    # )
+    # end_datetime = (
+    #     pd.Timestamp.combine(current_date, end_dt) - pd.Timedelta(minutes=15)
+    #     if isinstance(end_dt, time)
+    #     else end_dt - pd.Timedelta(minutes=15)
+    # )
 
-    valid_times = fut.loc[start_datetime:end_datetime].index
+    valid_times = fut.loc[start_dt:end_dt].index
     for current_dt in valid_times:
         try:
             future_price = fut.loc[current_dt, "close"]
@@ -226,16 +227,9 @@ def get_strangle_strike(
     tf=1,
     index=None,
 ):
-    # Get the date from the futures data
-    current_date = fut.index[0].date()
 
-    # Convert time objects to datetime
-    start_datetime = pd.Timestamp.combine(current_date, start_time)
-    end_datetime = pd.Timestamp.combine(current_date, end_time) - pd.Timedelta(
-        minutes=15
-    )
 
-    valid_times = fut.loc[start_datetime:end_datetime].index
+    valid_times = fut.loc[start_time:end_time].index
     for current_dt in valid_times:
         try:
             future_price = fut.loc[current_dt, "close"]
@@ -353,20 +347,20 @@ def get_sl_intra_sl(price, sl, intra_sl):
     intra_sl_price = (price * intra_sl) / 100
     return sl_price, intra_sl_price
 
-def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dtes, dte1, dte2, dte3, dte4, dte5, nml_cut):
+def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, OM, index, typ, dtes, dte1, dte2, dte3, dte4, dte5, nml_cut):
     sd = 0.0
-    if isinstance(om, str):
-        if om.lower().endswith("sd"):
-            sd = float(om[:-2])
+    if isinstance(OM, str):
+        if OM.lower().endswith("sd"):
+            sd = float(OM[:-2])
             om = 0.0
-        elif om.lower().endswith("s"):
-            sd = float(om[:-1])
+        elif OM.lower().endswith("s"):
+            sd = float(OM[:-1])
             om = 0.0
         else:
-            om = float(om)
+            om = float(OM)
             sd = 0.0
     else:
-        om = float(om)
+        om = float(OM)
         sd = 0.0
     metadata = {
         "P_Strategy": "SRE_W_Range",
@@ -376,7 +370,7 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
         "P_OrderSide": "BUY" if sl > 0 else "SELL",
         "P_sl": sl,
         "P_intraSL": intra_sl,
-        "P_OM": om,
+        "P_OM": OM,
         "P_FixedOrDynamic": typ,
         "P_NormalOrCut": nml_cut,
         "Start.Date": start_dt.date(),
@@ -392,10 +386,10 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
     }
     ce_data, pe_data = None, None
     opt = option.copy()
-    for i in range(10):
+    for i in range(7):
         metadata[f"STD{i}.Current_dt"] = None
         metadata[f"STD{i}.Scrip"] = None
-        metadata[f"STD{i}.Price"] = None
+        metadata[f"STD{i}.Open"] = None
         metadata[f"STD{i}.Future"] = None
         metadata[f"STD{i}.SL.Flag"] = False
         metadata[f"STD{i}.Intra.SL.Flag"] = False
@@ -404,21 +398,29 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
 
     count = 0
     while count < 10:
-        # print("start_dt", start_dt, "end_dt", end_dt)
-        ce_scrip, pe_scrip, ce_price, pe_price, future_price, current_dt = (get_straddle_strike(opt, fut, start_dt, end_dt, gap=get_gap(opt), sd=sd) if om == 0 else get_strangle_strike(
-                opt, fut, start_dt, end_dt, gap=get_gap(opt), om=om, index=index
-            )
-        )
+        ce_scrip, pe_scrip, ce_price, pe_price, future_price, current_dt = get_straddle_strike(opt, fut, start_dt, end_dt, gap=get_gap(opt))
+        
         if ce_scrip is None or pe_scrip is None:
             # print("No valid straddle/strangle found for the given parameters.")
             return metadata
-        metadata[f"STD{count}.Current_dt"] = current_dt
-        metadata[f"STD{count}.Future"] = future_price
-        metadata[f"STD{count}.Scrip"] = (ce_scrip, pe_scrip)
-        # print("ce_scrip, pe_scrip", ce_scrip, pe_scrip)
         scrip = int(ce_scrip[:-2])
         price = ce_price + pe_price
-        metadata[f"STD{count}.Price"] = price
+        
+        # print("start_dt", start_dt, "end_dt", end_dt)
+        _ce_scrip, _pe_scrip, _ce_price, _pe_price, _future_price, _current_dt = (get_straddle_strike(opt, fut, start_dt, end_dt, gap=get_gap(opt), sd=sd) if om == 0 else get_strangle_strike(
+                opt, fut, start_dt, end_dt, gap=get_gap(opt), om=om, index=index
+            )
+        )
+        # print("ce_scrip, pe_scrip", ce_scrip, pe_scrip)
+        # print("_ce_scrip, _pe_scrip", _ce_scrip, _pe_scrip)
+        if _ce_scrip is None or _pe_scrip is None:
+            # print("No valid straddle/strangle found for the given parameters.")
+            return metadata
+        ce_pe_price = _ce_price + _pe_price
+        metadata[f"STD{count}.Current_dt"] = _current_dt
+        metadata[f"STD{count}.Future"] = _future_price
+        metadata[f"STD{count}.Scrip"] = (_ce_scrip, _pe_scrip)
+        metadata[f"STD{count}.Open"] = ce_pe_price
         sl_price, intra_sl_price = get_sl_intra_sl(price, sl, intra_sl)
 
         sl_range_upper, sl_range_lower = scrip + sl_price, scrip - sl_price
@@ -447,10 +449,9 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
             pe_data.loc[mask_pe, "low"] = close_value
 
         common_index = ce_data.index.intersection(pe_data.index)
+        common_index = common_index.delete(0) if len(common_index) > 0 else common_index  # or: common_index = common_index[1:]
         ce_data = ce_data.loc[common_index]
         pe_data = pe_data.loc[common_index]
-        ce_data = ce_data[ce_data.index.time <= pd.Timestamp("15:25:00").time()]
-        pe_data = pe_data[pe_data.index.time <= pd.Timestamp("15:25:00").time()]
         intra_sl_time = None
         sl_time = None
         if typ.lower() == "dynamic":
@@ -465,13 +466,13 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 pe_day = pe_data[date_mask]
                 intra_sl_time_day = ce_day[
                     ((scrip + ce_day["high"] - pe_day["low"]) < intra_sl_range_lower)
-                    | ((scrip + ce_day["low"] - pe_day["high"]) > intra_sl_range_upper)
+                    | ((scrip + ce_day["low"] - pe_day["high"]) > intra_sl_range_upper) & (ce_day.index.time <= pd.Timestamp("15:15:00").time())
                 ].index
                 sl_time_day = ce_day[
                     ((scrip + ce_day["close"] - pe_day["close"]) < sl_range_lower)
-                    | ((scrip + ce_day["close"] - pe_day["close"]) > sl_range_upper)
+                    | ((scrip + ce_day["close"] - pe_day["close"]) > sl_range_upper) & (ce_day.index.time <= pd.Timestamp("15:15:00").time())
                 ].index
-                print("sl time",sl_time_day)
+                # print("sl time",sl_time_day)
                 # If SL hit on current day, exit loop
                 if len(intra_sl_time_day) > 0 or len(sl_time_day) > 0:
                     intra_sl_time = (
@@ -483,18 +484,26 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
 
                 if not is_last_day:
                     start_dt = ce_data[ce_data.index.date == current_date].index[-1] 
-                    ce_scrip, pe_scrip, ce_price, pe_price, future_price,   current_dt = get_straddle_strike(
-                            opt, fut, start_dt, end_dt, gap=get_gap(opt), sd=sd
-                        )  if om == 0.0 else get_strangle_strike(opt, fut, start_dt, end_dt, gap=get_gap(opt), om=om, index=index, )
-                    scrip = int(ce_scrip[:-2])
-                    price = ce_price + pe_price
-                    sl_price, intra_sl_price = get_sl_intra_sl(price, sl, intra_sl)
-
+                    # print("start_dt for changing range", start_dt)
+                    _, _, ce_price, pe_price, _,  _ = get_straddle_strike(
+                            opt, fut, start_dt, end_dt, gap=get_gap(opt))
+                    # _, _, ce_price, pe_price, _,  _ = get_straddle_strike(
+                    #         opt, fut, start_dt, end_dt, gap=get_gap(opt), sd=sd
+                    #     )  if om == 0.0 else get_strangle_strike(opt, fut, start_dt, end_dt, gap=get_gap(opt), om=om, index=index, )
+                    if ce_price is None or pe_price is None:
+                        # print("No valid straddle/strangle found for the given parameters.")
+                        return metadata
+                    # print("ce_price", ce_price, "pe_price", pe_price)
+                    _price = ce_price + pe_price
+                    sl_price, intra_sl_price = get_sl_intra_sl(_price, sl, intra_sl)
+                    # print("sl_price", sl_price, "intra_sl_price", intra_sl_price)
+                    
                     sl_range_upper, sl_range_lower = scrip + sl_price, scrip - sl_price
                     intra_sl_range_upper, intra_sl_range_lower = (
-                        scrip + intra_sl_price,
+                        scrip + intra_sl_price, 
                         scrip - intra_sl_price,
-                    )            
+                    )  
+                    # print("Updated sl range upper", sl_range_upper, "sl range lower", sl_range_lower)          
         else:
             
             # print(scrip + (ce_data["close"] - pe_data["close"]) <= intra_sl_range_lower)
@@ -521,15 +530,17 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
         pnl = 0
         exit_time = None
         exit_type = None
+        # print("intra_sl_time", intra_sl_time, "sl_time", sl_time)
         if sl_time is None and intra_sl_time is None:
-            pnl = (
-                price
-                - (ce_data["close"].iloc[-1] + pe_data["close"].iloc[-1])
-                - price * SLIPAGES[index.lower()]
-            )
             exit_time = ce_data.index[-1]
+            if  opt[opt["scrip"] == _ce_scrip].index[-1] == opt[opt["scrip"] == _pe_scrip].index[-1]:
+                exit_time = opt[opt["scrip"] == _ce_scrip].index[-1]
+            else:
+                exit_time = min(opt[opt["scrip"] == _ce_scrip].index[-1], opt[opt["scrip"] == _pe_scrip].index[-1])
+            # print("exit_time",exit_time,_ce_scrip,_pe_scrip,ce_pe_price,SLIPAGES[index.lower()])
+            pnl = ce_pe_price - opt[opt["scrip"] == _ce_scrip].loc[exit_time, "close"] + opt[opt["scrip"] == _pe_scrip].loc[exit_time, "close"] - ce_pe_price * SLIPAGES[index.lower()]
             exit_type = "End of Day"
-            metadata[f"STD{count}.PNL"] = pnl
+            metadata[f"STD{count}.PNL"] = round(pnl,2)
             return metadata
         if sl_time and intra_sl_time:
             if sl_time < intra_sl_time:
@@ -537,41 +548,49 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 exit_type = "SL Hit"
                 metadata[f"STD{count}.Hit_Time"] = exit_time
                 metadata[f"STD{count}.SL.Flag"] = True
+                # print("SL Hit at", exit_time)
             else:
                 exit_time = intra_sl_time
                 exit_type = "Intra SL Hit"
                 metadata[f"STD{count}.Hit_Time"] = exit_time
                 metadata[f"STD{count}.Intra.SL.Flag"] = True
+                # print("Intra SL Hit at", exit_time)
 
         elif sl_time and not intra_sl_time:
             exit_time = sl_time
             exit_type = "SL Hit"
             metadata[f"STD{count}.Hit_Time"] = exit_time
             metadata[f"STD{count}.SL.Flag"] = True
+            # print("only SL Hit at", exit_time)
 
         elif intra_sl_time and not sl_time:
             exit_time = intra_sl_time
             exit_type = "Intra SL Hit"
             metadata[f"STD{count}.Hit_Time"] = exit_time
             metadata[f"STD{count}.Intra.SL.Flag"] = True
+            # print("only Intra SL Hit at", exit_time)
 
         if exit_type == "SL Hit":
-            pnl = price - (ce_data.loc[exit_time, "close"] + pe_data.loc[exit_time, "close"]) - price * SLIPAGES[index.lower()]
-            metadata[f"STD{count}.PNL"] = pnl
+            # print("exit_time for SL Hit", exit_time)
+            # print(price, ce_data.loc[exit_time, "close"], pe_data.loc[exit_time, "close"], price * SLIPAGES[index.lower()])
+            pnl = ce_pe_price - opt[opt["scrip"] == _ce_scrip].loc[exit_time, "close"] - opt[opt["scrip"] == _pe_scrip].loc[exit_time, "close"] - ce_pe_price * SLIPAGES[index.lower()]
+            metadata[f"STD{count}.PNL"] = round(pnl,2)
+            # print("PNL for SL Hit", pnl)
 
         elif exit_type == "Intra SL Hit":
             pnl = (
-                price
-                - np.maximum(ce_data.loc[exit_time, "high"] + pe_data.loc[exit_time, "low"],ce_data.loc[exit_time, "low"] + pe_data.loc[exit_time, "high"])
-                - price * SLIPAGES[index.lower()]
+               ce_pe_price
+                - np.maximum(opt[opt["scrip"] == _ce_scrip].loc[exit_time, "high"] + opt[opt["scrip"] == _pe_scrip].loc[exit_time, "low"],opt[opt["scrip"] == _ce_scrip].loc[exit_time, "low"] + opt[opt["scrip"] == _pe_scrip].loc[exit_time, "high"])
+                - ce_pe_price * SLIPAGES[index.lower()]
             )
-            metadata[f"STD{count}.PNL"] = pnl
+            metadata[f"STD{count}.PNL"] = round(pnl,2)
+            # print("PNL for Intra SL Hit", pnl)
         count += 1
 
         if nml_cut.lower() == "cut":
 
             if exit_time.date() != end_dt.date():
-                start_dt = pd.to_datetime(f"{exit_time.date()} 15:25:00")
+                start_dt = pd.to_datetime(f"{exit_time.date()} 15:15:00")
                 # print("..start_dt...", start_dt)
             else:
                 return metadata
@@ -596,8 +615,7 @@ def sre_w_range(option, fut, start_dt, end_dt, sl, intra_sl, om, index, typ, dte
                 start_dt = exit_time
             else:
                 if exit_time.date() != end_dt.date():
-                    start_dt = pd.to_datetime(f"{exit_time.date()} 15:25:00")
-
+                    start_dt = pd.to_datetime(f"{exit_time.date()} 15:15:00")
                     # print(".start_dt...", start_dt)
                 else:
                     return metadata
@@ -631,7 +649,7 @@ for index in indexs:
 
     processed_files = cwd / f"{index}_output_files"
     processed_files.mkdir(exist_ok=True)
-    print(f"Processing index: {index}")
+    # print(f"Processing index: {index}")
     future_path = data_path / f"{PREFIX[index.lower()]} Future"
     options_path = data_path / f"{PREFIX[index.lower()]} Options"
 
@@ -640,28 +658,28 @@ for index in indexs:
     )
     weekly_groups = group_files_by_week(nifty_future_list, nifty_options_list, index)
     combinations = []
-    for typ in types:
-        for start_time in start_times:
-            for end_time in end_times:
-                for sl in sls:
-                    for intra_sl in intra_sls:
-                        for om in oms:
-                            for dte1 in dte1s:
-                                for dte2 in dte2s:
-                                    for dte3 in dte3s:
-                                        for dte4 in dte4s:
-                                            for dte5 in dte5s:
-                                                for nml_cut in nml_cuts:
-                                                    combine = []
-                                                    for weekly_group in weekly_groups:
-                                                        futs = []
-                                                        opts = []
-                                                        for (fut_path, opt_path) in weekly_group:
-                                                            fut = pd.read_pickle(fut_path)
-                                                            opt = pd.read_pickle(opt_path)
-                                                            opt["dte"] = dtes.loc[pd.to_datetime(opt["date_time"]).dt.date, index.upper()].values
-                                                            futs.append(fut)
-                                                            opts.append(opt)
+    for weekly_group in weekly_groups:
+        futs = []
+        opts = []
+        for (fut_path, opt_path) in weekly_group:
+            fut = pd.read_pickle(fut_path)
+            opt = pd.read_pickle(opt_path)
+            opt["dte"] = dtes.loc[pd.to_datetime(opt["date_time"]).dt.date, index.upper()].values
+            futs.append(fut)
+            opts.append(opt)
+        for typ in types:
+            for start_time in start_times:
+                for end_time in end_times:
+                    for sl , intra_sl in zip(sls,intra_sls):
+                        # for intra_sl in intra_sls:
+                            for om in tqdm(oms,colour="blue"):
+                                for nml_cut in nml_cuts:
+                                    for dte2 in dte2s:
+                                        for dte3 in dte3s:
+                                            for dte4 in dte4s:
+                                                for dte5 in dte5s:
+                                                    for dte1 in dte1s:
+                                                        combine = []
 
                                                         fut_week = pd.concat(futs).set_index("date_time")
                                                         opt_week = pd.concat(opts).set_index("date_time")
@@ -677,7 +695,7 @@ for index in indexs:
                                                         exit_date = pd.read_pickle(exit_file).iloc[-1]["date_time"]
                                                         exit_date = pd.to_datetime(exit_date)
 
-                                                        print(f"Processing week: {entry_date.date()} to {exit_date.date()}")
+                                                        # print(f"Processing week: {entry_date.date()} to {exit_date.date()}")
                                                         
                                                         start_dt = pd.to_datetime(f"{entry_date.date()} {start_time.strftime('%H:%M:%S')}" )
                                                         end_dt = pd.to_datetime(f"{exit_date.date()} {end_time.strftime('%H:%M:%S')}" )
@@ -707,8 +725,8 @@ for index in indexs:
                                                             processed_files
                                                             / f"sre_w_range_{entry_date.strftime('%H%M')}_{exit_date.strftime('%H%M')} {sl} {intra_sl} {om} {int(dte1)} {int(dte2)} {int(dte3)} {int(dte4)} {int(dte5)} {nml_cut}.csv"
                                                         )
-                                                    pd.DataFrame(combine).to_csv(
-                                                            file_path, index=False
-                                                        )
+                                                    # pd.DataFrame(combine).to_csv(
+                                                    #         file_path, index=False
+                                                    #     )
 
-    pd.DataFrame(combinations).to_csv(processed_files / "all_files.csv", index=False)
+    pd.DataFrame(combinations).to_csv(processed_files / f"{index} {start_date.date()} {end_date.date()}_files.csv", index=False)
